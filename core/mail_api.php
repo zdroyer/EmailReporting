@@ -69,6 +69,7 @@ class ERP_mailbox_api
 	private $_allow_file_upload;
 	private $_bug_resolved_status_threshold;
 	private $_email_separator1;
+	private $_display_bug_padding;
 	private $_validate_email;
 	private $_login_method;
 	private $_use_ldap_email;
@@ -127,6 +128,7 @@ class ERP_mailbox_api
 		$this->_allow_file_upload				= config_get( 'allow_file_upload' );
 		$this->_bug_resolved_status_threshold	= config_get( 'bug_resolved_status_threshold' );
 		$this->_email_separator1				= config_get( 'email_separator1' );
+		$this->_display_bug_padding				= config_get( 'display_bug_padding' );
 		$this->_validate_email					= config_get( 'validate_email' );
 		$this->_login_method					= config_get( 'login_method' );
 		$this->_use_ldap_email					= config_get( 'use_ldap_email' );
@@ -183,23 +185,23 @@ class ERP_mailbox_api
 				// Check whether EmailReporting supports the mailbox type. The check is based on available default ports
 				if ( isset( $this->_default_ports[ $this->_mailbox[ 'mailbox_type' ] ] ) )
 				{
-				$this->prepare_mailbox_hostname();
+					$this->prepare_mailbox_hostname();
 
 					if ( !$this->_test_only && $this->_mail_debug )
-				{
-					var_dump( $this->_mailbox );
+					{
+						var_dump( $this->_mailbox );
+					}
+
+					$this->show_memory_usage( 'Start process mailbox' );
+
+					$t_process_mailbox_function = 'process_' . strtolower( $this->_mailbox[ 'mailbox_type' ] ) . '_mailbox';
+
+					$this->show_memory_usage( 'Finished process mailbox' );
+
+					$this->$t_process_mailbox_function();
 				}
-
-				$this->show_memory_usage( 'Start process mailbox' );
-
-				$t_process_mailbox_function = 'process_' . strtolower( $this->_mailbox[ 'mailbox_type' ] ) . '_mailbox';
-
-				$this->show_memory_usage( 'Finished process mailbox' );
-
-				$this->$t_process_mailbox_function();
-			}
-			else
-			{
+				else
+				{
 					$this->custom_error( 'Unknown mailbox type' );
 				}
 			}
@@ -520,19 +522,20 @@ class ERP_mailbox_api
 		}
 		else
 		{
+			$t_reporter_id = FALSE;
+
 			// Try to get the reporting users id
 			if ( $this->_login_method == LDAP && $this->_use_ldap_email )
 			{
 				$t_username = ERP_ldap_get_username_from_email( $p_parsed_from[ 'email' ] );
 
-				if ( user_is_name_valid( $t_username ) )
+				if ( $t_username !== NULL && user_is_name_valid( $t_username ) )
 				{
 					$t_reporter_id = user_get_id_by_name( $t_username );
-				} else {
-                    $t_reporter_id = user_get_id_by_email( $p_parsed_from[ 'email' ] );
-                }
+				}
 			}
-			else
+
+			if ( !$t_reporter_id )
 			{
 				$t_reporter_id = user_get_id_by_email( $p_parsed_from[ 'email' ] );
 			}
@@ -565,17 +568,12 @@ class ERP_mailbox_api
 
 					if ( !$t_reporter_id )
 					{
-						$this->custom_error( 'Failed to create user based on: ' . implode( ' - ', $p_parsed_from ) );
+						$this->custom_error( 'Failed to create user based on: ' . $p_parsed_from[ 'From' ] );
 					}
 				}
-
-				if ( !$t_reporter_id && $this->_mail_fallback_mail_reporter )
-				{
-					// Fall back to the default mail_reporter
-					$t_reporter_id = $this->_mail_reporter_id;
-				}
 			}
-			elseif ( !user_is_enabled( $t_reporter_id ) && $this->_mail_fallback_mail_reporter )
+
+			if ( ( !$t_reporter_id || !user_is_enabled( $t_reporter_id ) ) && $this->_mail_fallback_mail_reporter )
 			{
 				// Fall back to the default mail_reporter
 				$t_reporter_id = $this->_mail_reporter_id;
@@ -1105,16 +1103,16 @@ class ERP_mailbox_api
 		switch ( $this->_mail_subject_id_regex )
 		{
 			case 'balanced':
-				$t_subject_id_regex = "/\[(?P<project>.+\s|)(?P<id>[0-9]{1,7})\]/u";
+				$t_subject_id_regex = "/\[(?P<project>.+\s|)0*(?P<id>[0-9]+)\]/u";
 				break;
 
 			case 'relaxed':
-				$t_subject_id_regex = "/\[(?P<project>.*\s|)0*(?P<id>[0-9]{1,7})\s*\]/u";
+				$t_subject_id_regex = "/\[(?P<project>.*\s|)0*(?P<id>[0-9]+)\s*\]/u";
 				break;
 
 			case 'strict':
 			default:
-				$t_subject_id_regex = "/\[(?P<project>.+\s)(?P<id>[0-9]{7,7})\]/u";
+				$t_subject_id_regex = "/\[(?P<project>.+\s)0*(?P<id>[0-9]+)\]/u";
 		}
 
 		preg_match( $t_subject_id_regex, $p_mail_subject, $v_matches );
